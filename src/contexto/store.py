@@ -415,14 +415,15 @@ class Store:
             return
 
         cursor = self.conn.cursor()
+        placeholders = ",".join("?" * len(file_paths))
         cursor.execute("BEGIN TRANSACTION")
         try:
-            for file_path in file_paths:
-                cursor.execute(
-                    "DELETE FROM nodes WHERE file_path = ? OR id = ?",
-                    (file_path, file_path),
-                )
-                cursor.execute("DELETE FROM files WHERE path = ?", (file_path,))
+            # Delete nodes where file_path matches OR id matches (for file nodes)
+            cursor.execute(
+                f"DELETE FROM nodes WHERE file_path IN ({placeholders}) OR id IN ({placeholders})",
+                file_paths + file_paths,
+            )
+            cursor.execute(f"DELETE FROM files WHERE path IN ({placeholders})", file_paths)
             cursor.execute("COMMIT")
         except Exception:
             cursor.execute("ROLLBACK")

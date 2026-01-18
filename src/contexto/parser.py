@@ -138,7 +138,7 @@ class PythonParser:
         for arg in args_node.posonlyargs:
             arg_str = self._format_arg(arg)
             default_idx = arg_index - pos_default_start
-            if default_idx >= 0 and default_idx < len(args_node.defaults):
+            if 0 <= default_idx < len(args_node.defaults):
                 arg_str += f"={ast.unparse(args_node.defaults[default_idx])}"
             parts.append(arg_str)
             arg_index += 1
@@ -151,7 +151,7 @@ class PythonParser:
         for arg in args_node.args:
             arg_str = self._format_arg(arg)
             default_idx = arg_index - pos_default_start
-            if default_idx >= 0 and default_idx < len(args_node.defaults):
+            if 0 <= default_idx < len(args_node.defaults):
                 arg_str += f"={ast.unparse(args_node.defaults[default_idx])}"
             parts.append(arg_str)
             arg_index += 1

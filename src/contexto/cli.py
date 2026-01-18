@@ -207,9 +207,7 @@ def _incremental_index(project_path: Path, db_path: Path) -> None:
             if stored_hash is None:
                 # New file - ensure parent directory exists in graph
                 parent_id = str(Path(rel_path).parent)
-                if parent_id == ".":
-                    parent_id = "."
-                else:
+                if parent_id != ".":
                     # Ensure all parent directories exist in the graph
                     _ensure_parent_dirs(graph, project_path, rel_path)
 
@@ -232,8 +230,6 @@ def _incremental_index(project_path: Path, db_path: Path) -> None:
 
                 # Update the graph
                 parent_id = str(Path(rel_path).parent)
-                if parent_id == ".":
-                    parent_id = "."
                 graph.add_single_file(file_path, rel_path, parent_id)
 
                 # Collect new node IDs after update
@@ -321,8 +317,6 @@ def show_map(
     _check_index_exists(db_path)
 
     with Store(db_path) as store:
-        formatter = JsonFormatter()
-
         root = store.get_node(".")
         if not root:
             console.print("[red]Error:[/red] No root node found")
@@ -337,7 +331,7 @@ def show_map(
 
         child_stats = [(child.id, all_stats.get(child.id, {})) for child in dir_children]
 
-        output = formatter.format_map(
+        output = JsonFormatter.format_map(
             root_name=root.name,
             root_path=str(project_path),
             stats=all_stats.get(".", {}),
@@ -370,8 +364,6 @@ def expand(
     _check_index_exists(db_path)
 
     with Store(db_path) as store:
-        formatter = JsonFormatter()
-
         node = store.get_node(node_path)
         if not node:
             console.print(f"[red]Error:[/red] Node not found: {node_path}")
@@ -383,7 +375,7 @@ def expand(
         child_ids = [child.id for child in children]
         stats_map = store.get_stats_batch(child_ids) if child_ids else {}
 
-        output = formatter.format_expand(node, children, stats_map)
+        output = JsonFormatter.format_expand(node, children, stats_map)
         print(output)
 
 
@@ -410,20 +402,15 @@ def inspect(
     _check_index_exists(db_path)
 
     with Store(db_path) as store:
-        formatter = JsonFormatter()
-
         node = store.get_node(entity_path)
         if not node:
             console.print(f"[red]Error:[/red] Entity not found: {entity_path}")
             raise typer.Exit(1)
 
-        # Get calls to (what this entity calls)
-        calls_to = node.calls if node.calls else []
-
         # Get called by (what calls this entity)
         called_by = store.get_callers(node.name)
 
-        output = formatter.format_inspect(node, calls_to, called_by)
+        output = JsonFormatter.format_inspect(node, node.calls, called_by)
         print(output)
 
 
@@ -456,10 +443,9 @@ def search(
 
     with Store(db_path) as store:
         search_engine = SearchEngine(store)
-        formatter = JsonFormatter()
 
         results = search_engine.search(query, limit=limit)
-        output = formatter.format_search_results(query, results)
+        output = JsonFormatter.format_search_results(query, results)
 
         print(output)
 
@@ -484,9 +470,9 @@ def read(
         help="Path to the project (default: current directory)",
     ),
 ) -> None:
-    """Read source code with line numbers.
+    """Read source code from a file.
 
-    Returns file content as JSON array of {number, content} objects.
+    Returns raw file content (not JSON).
     Use line ranges from 'expand' or 'inspect' to read specific functions.
     Without start/end, reads entire file.
     """
@@ -536,9 +522,8 @@ def read(
     selected_lines = lines[start_line - 1:end_line]
     selected_content = "\n".join(selected_lines)
 
-    formatter = JsonFormatter()
-    output = formatter.format_read(file_path, selected_content, start_line)
-    print(output)
+    # Output raw content directly (no JSON wrapper)
+    print(selected_content)
 
 
 @app.command()
@@ -564,10 +549,8 @@ def hierarchy(
     _check_index_exists(db_path)
 
     with Store(db_path) as store:
-        formatter = JsonFormatter()
-
         subclasses = store.get_subclasses(base_class)
-        output = formatter.format_hierarchy(base_class, subclasses)
+        output = JsonFormatter.format_hierarchy(base_class, subclasses)
 
         print(output)
 

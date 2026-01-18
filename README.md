@@ -189,28 +189,22 @@ $ contexto hierarchy BaseModel
 
 ### `contexto read <file> [start] [end]`
 
-Read source code from a file with line numbers.
+Read source code from a file. Outputs raw code (not JSON).
 
 ```bash
 $ contexto read src/api/users.py 15 20
 ```
 
-```json
-{
-  "command": "read",
-  "file_path": "src/api/users.py",
-  "start_line": 15,
-  "end_line": 20,
-  "lines": [
-    {"number": 15, "content": "    def get_user(self, user_id: int) -> User:"},
-    {"number": 16, "content": "        \"\"\"Retrieve user by ID from database.\"\"\""},
-    {"number": 17, "content": "        user = self.user_service.find_by_id(user_id)"},
-    {"number": 18, "content": "        if not user:"},
-    {"number": 19, "content": "            raise NotFoundError(f\"User {user_id} not found\")"},
-    {"number": 20, "content": "        return user"}
-  ]
-}
+```python
+    def get_user(self, user_id: int) -> User:
+        """Retrieve user by ID from database."""
+        user = self.user_service.find_by_id(user_id)
+        if not user:
+            raise NotFoundError(f"User {user_id} not found")
+        return user
 ```
+
+Use line ranges from `expand` or `inspect` to read specific functions.
 
 ## Use with LLMs
 

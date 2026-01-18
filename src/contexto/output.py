@@ -20,7 +20,7 @@ def _node_to_dict(node: GraphNode) -> dict[str, Any]:
         "docstring": node.docstring,
         "children_ids": node.children_ids,
         "calls": node.calls,
-        "base_classes": getattr(node, "base_classes", []),
+        "base_classes": node.base_classes,
     }
 
 
@@ -82,22 +82,6 @@ class JsonFormatter:
                     "score": round(score, 4),
                 }
                 for node, score in results
-            ],
-        }
-        return json.dumps(data, indent=2)
-
-    @staticmethod
-    def format_read(file_path: str, content: str, start_line: int = 1) -> str:
-        """Format file content as JSON."""
-        lines = content.split("\n")
-        data = {
-            "command": "read",
-            "file_path": file_path,
-            "start_line": start_line,
-            "end_line": start_line + len(lines) - 1,
-            "lines": [
-                {"number": start_line + i, "content": line}
-                for i, line in enumerate(lines)
             ],
         }
         return json.dumps(data, indent=2)

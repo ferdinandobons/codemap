@@ -254,17 +254,15 @@ class TestSearchCommand:
 class TestReadCommand:
     """Tests for the read command."""
 
-    def test_read_returns_json(self, indexed_project):
-        """Test that read returns valid JSON."""
+    def test_read_returns_raw_content(self, indexed_project):
+        """Test that read returns raw file content."""
         project_path, _ = indexed_project
 
         result = runner.invoke(app, ["read", "src/main.py", "-p", str(project_path)])
 
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
-        assert data["command"] == "read"
-        assert data["file_path"] == "src/main.py"
-        assert "lines" in data
+        # Output should be raw code, not JSON
+        assert "def main" in result.stdout
 
     def test_read_file(self, indexed_project):
         """Test reading a file."""
@@ -273,10 +271,8 @@ class TestReadCommand:
         result = runner.invoke(app, ["read", "src/main.py", "-p", str(project_path)])
 
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
         # Should contain the main function
-        content = "\n".join(line["content"] for line in data["lines"])
-        assert "def main" in content
+        assert "def main" in result.stdout
 
     def test_read_with_line_range(self, indexed_project):
         """Test reading file with line range."""
@@ -285,10 +281,9 @@ class TestReadCommand:
         result = runner.invoke(app, ["read", "src/main.py", "1", "5", "-p", str(project_path)])
 
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
-        assert data["start_line"] == 1
-        assert data["end_line"] == 5
-        assert len(data["lines"]) == 5
+        # Raw content should have 5 lines
+        lines = result.stdout.strip().split("\n")
+        assert len(lines) == 5
 
     def test_read_nonexistent(self, indexed_project):
         """Test reading nonexistent file."""
@@ -393,11 +388,10 @@ class TestCLIIntegration:
         assert data["command"] == "search"
         assert "Calculator" in [r["node"]["name"] for r in data["results"]]
 
-        # Read
+        # Read (returns raw content, not JSON)
         result = runner.invoke(app, ["read", "src/main.py", "-p", str(sample_project)])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
-        assert data["command"] == "read"
+        assert "def main" in result.stdout
 
     def test_workflow_with_hierarchy(self, project_with_inheritance):
         """Test workflow including hierarchy command."""

@@ -301,54 +301,6 @@ class TestJsonFormatter:
         data = json.loads(output)
         assert data["results"][0]["score"] == 0.1235
 
-    def test_format_read(self):
-        """Test formatting file read output."""
-        content = "def hello():\n    print('Hello!')"
-
-        output = JsonFormatter.format_read(
-            file_path="src/main.py",
-            content=content,
-            start_line=10,
-        )
-
-        data = json.loads(output)
-        assert data["command"] == "read"
-        assert data["file_path"] == "src/main.py"
-        assert data["start_line"] == 10
-        assert data["end_line"] == 11
-        assert len(data["lines"]) == 2
-        assert data["lines"][0]["number"] == 10
-        assert data["lines"][0]["content"] == "def hello():"
-        assert data["lines"][1]["number"] == 11
-        assert data["lines"][1]["content"] == "    print('Hello!')"
-
-    def test_format_read_single_line(self):
-        """Test formatting single line read."""
-        output = JsonFormatter.format_read(
-            file_path="test.py",
-            content="x = 1",
-            start_line=5,
-        )
-
-        data = json.loads(output)
-        assert data["start_line"] == 5
-        assert data["end_line"] == 5
-        assert len(data["lines"]) == 1
-
-    def test_format_read_empty_file(self):
-        """Test formatting read of empty file."""
-        output = JsonFormatter.format_read(
-            file_path="empty.py",
-            content="",
-            start_line=1,
-        )
-
-        data = json.loads(output)
-        assert data["start_line"] == 1
-        assert data["end_line"] == 1
-        assert len(data["lines"]) == 1
-        assert data["lines"][0]["content"] == ""
-
     def test_format_hierarchy(self):
         """Test formatting class hierarchy."""
         subclasses = [
@@ -399,7 +351,6 @@ class TestJsonFormatter:
             JsonFormatter.format_expand(node, [], {}),
             JsonFormatter.format_inspect(node, [], []),
             JsonFormatter.format_search_results("q", []),
-            JsonFormatter.format_read("f", "c", 1),
             JsonFormatter.format_hierarchy("B", []),
         ]
 

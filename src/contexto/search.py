@@ -301,7 +301,7 @@ class SearchEngine:
         cursor.execute(
             f"""
             SELECT id, name, type, parent_id, file_path,
-                   line_start, line_end, signature, docstring, calls
+                   line_start, line_end, signature, docstring, calls, base_classes
             FROM nodes
             WHERE id IN ({placeholders})
             """,
@@ -323,6 +323,7 @@ class SearchEngine:
                 signature=row["signature"],
                 docstring=row["docstring"],
                 calls=row["calls"].split(",") if row["calls"] else [],
+                base_classes=row["base_classes"].split(",") if row["base_classes"] else [],
             )
 
         # Calculate max possible score for normalization

@@ -1,13 +1,10 @@
 """Graph construction and navigation for the codebase."""
 
-import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
 from contexto.parser import CodeEntity, PythonParser
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -119,7 +116,7 @@ class CodeGraph:
         # Parse file first to get line count
         entities, line_count = self.parser.parse_file(file_path)
 
-        # Create file node with line_end set to total lines
+        # Create file node with line_end set to total lines (default to 0 if parsing failed)
         file_node = GraphNode(
             id=rel_path,
             name=file_path.name,
@@ -127,7 +124,7 @@ class CodeGraph:
             parent_id=parent_id,
             file_path=rel_path,
             line_start=1,
-            line_end=line_count,
+            line_end=line_count or 0,
         )
         self.nodes[rel_path] = file_node
         self.nodes[parent_id].children_ids.append(rel_path)

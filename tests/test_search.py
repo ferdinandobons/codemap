@@ -180,3 +180,273 @@ class TestSearchEngine:
             # Should find our async_fetch function
             names = [node.name for node, _ in results]
             assert "async_fetch" in names
+
+
+class TestSearchResultCaching:
+    """Tests for search result caching."""
+
+    def test_cache_stores_results(self, indexed_project):
+        """Test that search results are cached."""
+        _, db_path = indexed_project
+
+        with Store(db_path) as store:
+            engine = SearchEngine(store)
+
+            # Cache should be empty
+            assert len(engine._result_cache) == 0
+
+            # Perform a search
+            results1 = engine.search("Calculator")
+
+            # Cache should now have one entry
+            assert len(engine._result_cache) == 1
+
+            # Same search should return cached results
+            results2 = engine.search("Calculator")
+
+            # Results should be identical (same object reference due to cache)
+            assert results1 is results2
+
+    def test_cache_key_includes_limit(self, indexed_project):
+        """Test that cache key includes the limit parameter."""
+        _, db_path = indexed_project
+
+        with Store(db_path) as store:
+            engine = SearchEngine(store)
+
+            results1 = engine.search("Calculator", limit=5)
+            results2 = engine.search("Calculator", limit=10)
+
+            # Different limits should have different cache entries
+            assert len(engine._result_cache) == 2
+            assert "Calculator:5" in engine._result_cache
+            assert "Calculator:10" in engine._result_cache
+
+    def test_cache_cleared_on_build_index(self, indexed_project):
+        """Test that cache is cleared when index is rebuilt."""
+        _, db_path = indexed_project
+
+        with Store(db_path) as store:
+            engine = SearchEngine(store)
+
+            # Populate cache
+            engine.search("Calculator")
+            assert len(engine._result_cache) > 0
+
+            # Rebuild index
+            engine.build_index()
+
+            # Cache should be cleared
+            assert len(engine._result_cache) == 0
+
+
+class TestIncrementalIndexing:
+    """Tests for incremental search index updates."""
+
+    def test_update_index_for_nodes(self, temp_dir):
+        """Test updating search index for specific nodes."""
+        from contexto.graph import GraphNode
+
+        db_path = temp_dir / "test.db"
+
+        with Store(db_path) as store:
+            # Create initial graph with one function
+            graph = CodeGraph(temp_dir)
+            graph.nodes["."] = GraphNode(id=".", name="root", type="dir")
+            graph.nodes["test.py"] = GraphNode(
+                id="test.py", name="test.py", type="file", parent_id=".", file_path="test.py"
+            )
+            graph.nodes["test.py:foo"] = GraphNode(
+                id="test.py:foo",
+                name="foo",
+                type="function",
+                parent_id="test.py",
+                file_path="test.py",
+                signature="def foo()",
+                docstring="Original function",
+            )
+            store.save_graph(graph)
+
+            engine = SearchEngine(store)
+            engine.build_index()
+
+            # Search should find "foo"
+            results = engine.search("foo")
+            assert len(results) == 1
+            assert results[0][0].name == "foo"
+
+            # Now add a new function to the graph
+            graph.nodes["test.py:bar"] = GraphNode(
+                id="test.py:bar",
+                name="bar",
+                type="function",
+                parent_id="test.py",
+                file_path="test.py",
+                signature="def bar()",
+                docstring="New function for searching",
+            )
+            store.save_graph(graph)
+
+            # Update index just for the new node
+            engine.update_index_for_nodes(["test.py:bar"], total_docs_changed=1)
+
+            # Search should now find "bar"
+            results = engine.search("bar")
+            assert len(results) == 1
+            assert results[0][0].name == "bar"
+
+    def test_update_index_clears_cache(self, temp_dir):
+        """Test that updating index clears the result cache."""
+        from contexto.graph import GraphNode
+
+        db_path = temp_dir / "test.db"
+
+        with Store(db_path) as store:
+            graph = CodeGraph(temp_dir)
+            graph.nodes["."] = GraphNode(id=".", name="root", type="dir")
+            graph.nodes["test.py"] = GraphNode(
+                id="test.py", name="test.py", type="file", parent_id=".", file_path="test.py"
+            )
+            graph.nodes["test.py:foo"] = GraphNode(
+                id="test.py:foo",
+                name="foo",
+                type="function",
+                parent_id="test.py",
+                file_path="test.py",
+            )
+            store.save_graph(graph)
+
+            engine = SearchEngine(store)
+            engine.build_index()
+
+            # Populate cache
+            engine.search("foo")
+            assert len(engine._result_cache) > 0
+
+            # Update index
+            engine.update_index_for_nodes(["test.py:foo"])
+
+            # Cache should be cleared
+            assert len(engine._result_cache) == 0
+
+    def test_remove_nodes_from_index(self, temp_dir):
+        """Test removing nodes from search index."""
+        from contexto.graph import GraphNode
+
+        db_path = temp_dir / "test.db"
+
+        with Store(db_path) as store:
+            graph = CodeGraph(temp_dir)
+            graph.nodes["."] = GraphNode(id=".", name="root", type="dir")
+            graph.nodes["test.py"] = GraphNode(
+                id="test.py", name="test.py", type="file", parent_id=".", file_path="test.py"
+            )
+            graph.nodes["test.py:removable"] = GraphNode(
+                id="test.py:removable",
+                name="removable",
+                type="function",
+                parent_id="test.py",
+                file_path="test.py",
+                signature="def removable()",
+                docstring="This function will be removed",
+            )
+            store.save_graph(graph)
+
+            engine = SearchEngine(store)
+            engine.build_index()
+
+            # Search should find it
+            results = engine.search("removable")
+            assert len(results) == 1
+
+            # Remove from index
+            engine.remove_nodes_from_index(["test.py:removable"])
+
+            # Search should no longer find it
+            results = engine.search("removable")
+            assert len(results) == 0
+
+    def test_remove_nodes_clears_cache(self, temp_dir):
+        """Test that removing nodes clears the result cache."""
+        from contexto.graph import GraphNode
+
+        db_path = temp_dir / "test.db"
+
+        with Store(db_path) as store:
+            graph = CodeGraph(temp_dir)
+            graph.nodes["."] = GraphNode(id=".", name="root", type="dir")
+            graph.nodes["test.py"] = GraphNode(
+                id="test.py", name="test.py", type="file", parent_id=".", file_path="test.py"
+            )
+            graph.nodes["test.py:foo"] = GraphNode(
+                id="test.py:foo",
+                name="foo",
+                type="function",
+                parent_id="test.py",
+                file_path="test.py",
+            )
+            store.save_graph(graph)
+
+            engine = SearchEngine(store)
+            engine.build_index()
+
+            # Populate cache
+            engine.search("foo")
+            assert len(engine._result_cache) > 0
+
+            # Remove from index
+            engine.remove_nodes_from_index(["test.py:foo"])
+
+            # Cache should be cleared
+            assert len(engine._result_cache) == 0
+
+    def test_update_empty_node_list(self, indexed_project):
+        """Test that updating with empty list does nothing."""
+        _, db_path = indexed_project
+
+        with Store(db_path) as store:
+            engine = SearchEngine(store)
+            engine.build_index()
+
+            # Populate cache
+            engine.search("Calculator")
+            cache_size = len(engine._result_cache)
+
+            # Update with empty list should not clear cache
+            engine.update_index_for_nodes([])
+
+            # Cache should still be populated
+            assert len(engine._result_cache) == cache_size
+
+    def test_remove_empty_node_list(self, indexed_project):
+        """Test that removing with empty list does nothing."""
+        _, db_path = indexed_project
+
+        with Store(db_path) as store:
+            engine = SearchEngine(store)
+            engine.build_index()
+
+            # Populate cache
+            engine.search("Calculator")
+            cache_size = len(engine._result_cache)
+
+            # Remove with empty list should not clear cache
+            engine.remove_nodes_from_index([])
+
+            # Cache should still be populated
+            assert len(engine._result_cache) == cache_size
+
+    def test_update_nonexistent_nodes(self, indexed_project):
+        """Test updating index for nodes that don't exist."""
+        _, db_path = indexed_project
+
+        with Store(db_path) as store:
+            engine = SearchEngine(store)
+            engine.build_index()
+
+            # This should not raise an error
+            engine.update_index_for_nodes(["nonexistent:node"])
+
+            # Search should still work
+            results = engine.search("Calculator")
+            assert len(results) > 0

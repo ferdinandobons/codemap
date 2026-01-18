@@ -98,3 +98,77 @@ def indexed_project(sample_project):
         search_engine.build_index()
 
     return sample_project, db_path
+
+
+@pytest.fixture
+def project_with_inheritance(temp_dir):
+    """Create a project with class inheritance for hierarchy testing."""
+    src_dir = temp_dir / "src"
+    src_dir.mkdir()
+
+    # Create models with inheritance
+    models_py = src_dir / "models.py"
+    models_py.write_text('''"""Data models with inheritance."""
+
+
+class BaseModel:
+    """Base class for all models."""
+
+    def save(self):
+        """Save the model."""
+        pass
+
+
+class User(BaseModel):
+    """User model."""
+
+    def __init__(self, name: str):
+        self.name = name
+
+
+class Admin(User):
+    """Admin user with extra permissions."""
+
+    def grant_access(self):
+        """Grant admin access."""
+        pass
+
+
+class Product(BaseModel):
+    """Product model."""
+
+    def __init__(self, name: str, price: float):
+        self.name = name
+        self.price = price
+
+
+class Order(BaseModel):
+    """Order model."""
+    pass
+''')
+
+    (src_dir / "__init__.py").write_text("")
+
+    return temp_dir
+
+
+@pytest.fixture
+def indexed_project_with_inheritance(project_with_inheritance):
+    """Index the project with inheritance."""
+    from contexto.graph import CodeGraph
+    from contexto.store import Store
+    from contexto.search import SearchEngine
+
+    contexto_dir = project_with_inheritance / ".contexto"
+    contexto_dir.mkdir()
+    db_path = contexto_dir / "index.db"
+
+    graph = CodeGraph(project_with_inheritance)
+    graph.build()
+
+    with Store(db_path) as store:
+        store.save_graph(graph)
+        search_engine = SearchEngine(store)
+        search_engine.build_index()
+
+    return project_with_inheritance, db_path

@@ -31,6 +31,7 @@ class Store:
         signature TEXT,
         docstring TEXT,
         calls TEXT,
+        base_classes TEXT,
         FOREIGN KEY (parent_id) REFERENCES nodes(id)
     );
 
@@ -95,7 +96,19 @@ class Store:
     def _init_schema(self) -> None:
         """Initialize the database schema."""
         self.conn.executescript(self.SCHEMA)
+        self._migrate_schema()
         self.conn.commit()
+
+    def _migrate_schema(self) -> None:
+        """Apply schema migrations for existing databases."""
+        cursor = self.conn.cursor()
+
+        # Check if base_classes column exists
+        cursor.execute("PRAGMA table_info(nodes)")
+        columns = {row["name"] for row in cursor.fetchall()}
+
+        if "base_classes" not in columns:
+            cursor.execute("ALTER TABLE nodes ADD COLUMN base_classes TEXT")
 
     def __enter__(self) -> "Store":
         """Enter context manager."""
@@ -139,6 +152,7 @@ class Store:
                     node.signature,
                     node.docstring,
                     ",".join(node.calls) if node.calls else None,
+                    ",".join(node.base_classes) if node.base_classes else None,
                 )
                 for node in graph.nodes.values()
             ]
@@ -146,8 +160,8 @@ class Store:
             cursor.executemany(
                 """
                 INSERT INTO nodes (id, parent_id, name, type, file_path,
-                                   line_start, line_end, signature, docstring, calls)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                   line_start, line_end, signature, docstring, calls, base_classes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 node_data,
             )
@@ -177,6 +191,7 @@ class Store:
                 signature=row["signature"],
                 docstring=row["docstring"],
                 calls=row["calls"].split(",") if row["calls"] else [],
+                base_classes=row["base_classes"].split(",") if row["base_classes"] else [],
             )
             graph.nodes[node.id] = node
 
@@ -212,6 +227,7 @@ class Store:
             docstring=row["docstring"],
             calls=row["calls"].split(",") if row["calls"] else [],
             children_ids=children,
+            base_classes=row["base_classes"].split(",") if row["base_classes"] else [],
         )
 
     def get_children(self, node_id: str) -> list[GraphNode]:
@@ -223,7 +239,7 @@ class Store:
             """
             SELECT
                 c.id, c.name, c.type, c.parent_id, c.file_path,
-                c.line_start, c.line_end, c.signature, c.docstring, c.calls,
+                c.line_start, c.line_end, c.signature, c.docstring, c.calls, c.base_classes,
                 GROUP_CONCAT(g.id) as grandchildren_ids
             FROM nodes c
             LEFT JOIN nodes g ON g.parent_id = c.id
@@ -250,6 +266,7 @@ class Store:
                 docstring=row["docstring"],
                 calls=row["calls"].split(",") if row["calls"] else [],
                 children_ids=grandchildren,
+                base_classes=row["base_classes"].split(",") if row["base_classes"] else [],
             ))
 
         return children
@@ -417,6 +434,15 @@ class Store:
         cursor.execute("SELECT path, hash FROM files")
         return {row["path"]: row["hash"] for row in cursor.fetchall()}
 
+    @staticmethod
+    def _escape_like_pattern(value: str) -> str:
+        """Escape special characters for LIKE patterns.
+
+        SQLite LIKE treats % and _ as wildcards. This escapes them
+        so they match literally.
+        """
+        return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
     def get_callers(self, entity_name: str) -> list[str]:
         """Find all entities that call a given entity name.
 
@@ -427,20 +453,78 @@ class Store:
             List of node IDs that contain calls to this entity
         """
         cursor = self.conn.cursor()
+        # Escape special LIKE characters to prevent pattern injection
+        escaped_name = self._escape_like_pattern(entity_name)
+
         # Search for entities whose 'calls' field contains the entity name
         cursor.execute(
             """
             SELECT id FROM nodes
-            WHERE calls LIKE ? OR calls LIKE ? OR calls LIKE ? OR calls = ?
+            WHERE calls LIKE ? ESCAPE '\\'
+               OR calls LIKE ? ESCAPE '\\'
+               OR calls LIKE ? ESCAPE '\\'
+               OR calls = ?
             """,
             (
-                f"{entity_name},%",  # At start
-                f"%,{entity_name},%",  # In middle
-                f"%,{entity_name}",  # At end
-                entity_name,  # Exact match (single call)
+                f"{escaped_name},%",  # At start
+                f"%,{escaped_name},%",  # In middle
+                f"%,{escaped_name}",  # At end
+                entity_name,  # Exact match (single call) - no escape needed
             ),
         )
         return [row["id"] for row in cursor.fetchall()]
+
+    def get_subclasses(self, base_class: str) -> list[GraphNode]:
+        """Find all classes that inherit from a given base class.
+
+        Args:
+            base_class: The name of the base class to search for
+
+        Returns:
+            List of GraphNode objects that inherit from the base class
+        """
+        cursor = self.conn.cursor()
+        # Escape special LIKE characters to prevent pattern injection
+        escaped_class = self._escape_like_pattern(base_class)
+
+        # Search for classes whose base_classes contain the given base class
+        cursor.execute(
+            """
+            SELECT id, name, type, parent_id, file_path,
+                   line_start, line_end, signature, docstring, calls, base_classes
+            FROM nodes
+            WHERE type = 'class' AND (
+                base_classes LIKE ? ESCAPE '\\'
+                OR base_classes LIKE ? ESCAPE '\\'
+                OR base_classes LIKE ? ESCAPE '\\'
+                OR base_classes = ?
+            )
+            """,
+            (
+                f"{escaped_class},%",  # At start
+                f"%,{escaped_class},%",  # In middle
+                f"%,{escaped_class}",  # At end
+                base_class,  # Exact match (single base class) - no escape needed
+            ),
+        )
+
+        subclasses = []
+        for row in cursor.fetchall():
+            subclasses.append(GraphNode(
+                id=row["id"],
+                name=row["name"],
+                type=row["type"],
+                parent_id=row["parent_id"],
+                file_path=row["file_path"],
+                line_start=row["line_start"],
+                line_end=row["line_end"],
+                signature=row["signature"],
+                docstring=row["docstring"],
+                calls=row["calls"].split(",") if row["calls"] else [],
+                base_classes=row["base_classes"].split(",") if row["base_classes"] else [],
+            ))
+
+        return subclasses
 
     def close(self) -> None:
         """Close the database connection."""

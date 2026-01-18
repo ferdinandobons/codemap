@@ -1,5 +1,6 @@
 """Tests for the CLI commands."""
 
+import json
 import pytest
 from typer.testing import CliRunner
 
@@ -71,6 +72,19 @@ class TestIndexCommand:
 class TestMapCommand:
     """Tests for the map command."""
 
+    def test_map_returns_json(self, indexed_project):
+        """Test that map returns valid JSON."""
+        project_path, _ = indexed_project
+
+        result = runner.invoke(app, ["map", str(project_path)])
+
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["command"] == "map"
+        assert "project" in data
+        assert "stats" in data
+        assert "children" in data
+
     def test_map_shows_structure(self, indexed_project):
         """Test that map shows project structure."""
         project_path, _ = indexed_project
@@ -78,8 +92,9 @@ class TestMapCommand:
         result = runner.invoke(app, ["map", str(project_path)])
 
         assert result.exit_code == 0
-        assert "project:" in result.stdout
-        assert "src/" in result.stdout
+        data = json.loads(result.stdout)
+        child_ids = [c["id"] for c in data["children"]]
+        assert "src" in child_ids
 
     def test_map_no_index(self, sample_project):
         """Test map without existing index."""
@@ -92,6 +107,18 @@ class TestMapCommand:
 class TestExpandCommand:
     """Tests for the expand command."""
 
+    def test_expand_returns_json(self, indexed_project):
+        """Test that expand returns valid JSON."""
+        project_path, _ = indexed_project
+
+        result = runner.invoke(app, ["expand", "src", "-p", str(project_path)])
+
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["command"] == "expand"
+        assert "node" in data
+        assert "children" in data
+
     def test_expand_directory(self, indexed_project):
         """Test expanding a directory."""
         project_path, _ = indexed_project
@@ -99,7 +126,9 @@ class TestExpandCommand:
         result = runner.invoke(app, ["expand", "src", "-p", str(project_path)])
 
         assert result.exit_code == 0
-        assert "src/" in result.stdout
+        data = json.loads(result.stdout)
+        assert data["node"]["id"] == "src"
+        assert data["node"]["type"] == "dir"
 
     def test_expand_file(self, indexed_project):
         """Test expanding a file."""
@@ -108,7 +137,11 @@ class TestExpandCommand:
         result = runner.invoke(app, ["expand", "src/main.py", "-p", str(project_path)])
 
         assert result.exit_code == 0
-        assert "src/main.py" in result.stdout
+        data = json.loads(result.stdout)
+        assert data["node"]["id"] == "src/main.py"
+        assert data["node"]["type"] == "file"
+        # Should have children (functions)
+        assert len(data["children"]) > 0
 
     def test_expand_nonexistent(self, indexed_project):
         """Test expanding nonexistent node."""
@@ -123,6 +156,19 @@ class TestExpandCommand:
 class TestInspectCommand:
     """Tests for the inspect command."""
 
+    def test_inspect_returns_json(self, indexed_project):
+        """Test that inspect returns valid JSON."""
+        project_path, _ = indexed_project
+
+        result = runner.invoke(app, ["inspect", "src/utils/helpers.py:Calculator", "-p", str(project_path)])
+
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["command"] == "inspect"
+        assert "node" in data
+        assert "calls" in data
+        assert "called_by" in data
+
     def test_inspect_class(self, indexed_project):
         """Test inspecting a class."""
         project_path, _ = indexed_project
@@ -130,7 +176,20 @@ class TestInspectCommand:
         result = runner.invoke(app, ["inspect", "src/utils/helpers.py:Calculator", "-p", str(project_path)])
 
         assert result.exit_code == 0
-        assert "class: Calculator" in result.stdout
+        data = json.loads(result.stdout)
+        assert data["node"]["name"] == "Calculator"
+        assert data["node"]["type"] == "class"
+
+    def test_inspect_function(self, indexed_project):
+        """Test inspecting a function."""
+        project_path, _ = indexed_project
+
+        result = runner.invoke(app, ["inspect", "src/main.py:main", "-p", str(project_path)])
+
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["node"]["name"] == "main"
+        assert data["node"]["type"] == "function"
 
     def test_inspect_nonexistent(self, indexed_project):
         """Test inspecting nonexistent entity."""
@@ -145,6 +204,19 @@ class TestInspectCommand:
 class TestSearchCommand:
     """Tests for the search command."""
 
+    def test_search_returns_json(self, indexed_project):
+        """Test that search returns valid JSON."""
+        project_path, _ = indexed_project
+
+        result = runner.invoke(app, ["search", "Calculator", "-p", str(project_path)])
+
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["command"] == "search"
+        assert data["query"] == "Calculator"
+        assert "count" in data
+        assert "results" in data
+
     def test_search_finds_results(self, indexed_project):
         """Test that search finds results."""
         project_path, _ = indexed_project
@@ -152,8 +224,10 @@ class TestSearchCommand:
         result = runner.invoke(app, ["search", "Calculator", "-p", str(project_path)])
 
         assert result.exit_code == 0
-        assert "search:" in result.stdout
-        assert "Calculator" in result.stdout
+        data = json.loads(result.stdout)
+        assert data["count"] > 0
+        names = [r["node"]["name"] for r in data["results"]]
+        assert "Calculator" in names
 
     def test_search_with_limit(self, indexed_project):
         """Test search with limit option."""
@@ -162,6 +236,8 @@ class TestSearchCommand:
         result = runner.invoke(app, ["search", "def", "-l", "2", "-p", str(project_path)])
 
         assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert len(data["results"]) <= 2
 
     def test_search_no_results(self, indexed_project):
         """Test search with no results."""
@@ -170,11 +246,25 @@ class TestSearchCommand:
         result = runner.invoke(app, ["search", "xyznonexistent", "-p", str(project_path)])
 
         assert result.exit_code == 0
-        assert "(0 results)" in result.stdout
+        data = json.loads(result.stdout)
+        assert data["count"] == 0
+        assert data["results"] == []
 
 
 class TestReadCommand:
     """Tests for the read command."""
+
+    def test_read_returns_json(self, indexed_project):
+        """Test that read returns valid JSON."""
+        project_path, _ = indexed_project
+
+        result = runner.invoke(app, ["read", "src/main.py", "-p", str(project_path)])
+
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["command"] == "read"
+        assert data["file_path"] == "src/main.py"
+        assert "lines" in data
 
     def test_read_file(self, indexed_project):
         """Test reading a file."""
@@ -183,8 +273,10 @@ class TestReadCommand:
         result = runner.invoke(app, ["read", "src/main.py", "-p", str(project_path)])
 
         assert result.exit_code == 0
-        assert "file: src/main.py" in result.stdout
-        assert "def main" in result.stdout
+        data = json.loads(result.stdout)
+        # Should contain the main function
+        content = "\n".join(line["content"] for line in data["lines"])
+        assert "def main" in content
 
     def test_read_with_line_range(self, indexed_project):
         """Test reading file with line range."""
@@ -193,7 +285,10 @@ class TestReadCommand:
         result = runner.invoke(app, ["read", "src/main.py", "1", "5", "-p", str(project_path)])
 
         assert result.exit_code == 0
-        assert "   1 |" in result.stdout
+        data = json.loads(result.stdout)
+        assert data["start_line"] == 1
+        assert data["end_line"] == 5
+        assert len(data["lines"]) == 5
 
     def test_read_nonexistent(self, indexed_project):
         """Test reading nonexistent file."""
@@ -203,6 +298,71 @@ class TestReadCommand:
 
         assert result.exit_code == 1
         assert "File not found" in result.stdout
+
+
+class TestHierarchyCommand:
+    """Tests for the hierarchy command."""
+
+    def test_hierarchy_returns_json(self, indexed_project_with_inheritance):
+        """Test that hierarchy returns valid JSON."""
+        project_path, _ = indexed_project_with_inheritance
+
+        result = runner.invoke(app, ["hierarchy", "BaseModel", "-p", str(project_path)])
+
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["command"] == "hierarchy"
+        assert data["base_class"] == "BaseModel"
+        assert "count" in data
+        assert "subclasses" in data
+
+    def test_hierarchy_finds_subclasses(self, indexed_project_with_inheritance):
+        """Test that hierarchy finds all subclasses."""
+        project_path, _ = indexed_project_with_inheritance
+
+        result = runner.invoke(app, ["hierarchy", "BaseModel", "-p", str(project_path)])
+
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        names = {s["name"] for s in data["subclasses"]}
+        assert "User" in names
+        assert "Product" in names
+        assert "Order" in names
+
+    def test_hierarchy_nested_inheritance(self, indexed_project_with_inheritance):
+        """Test hierarchy with nested inheritance."""
+        project_path, _ = indexed_project_with_inheritance
+
+        result = runner.invoke(app, ["hierarchy", "User", "-p", str(project_path)])
+
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        # Admin inherits from User
+        names = {s["name"] for s in data["subclasses"]}
+        assert "Admin" in names
+
+    def test_hierarchy_no_subclasses(self, indexed_project_with_inheritance):
+        """Test hierarchy when no subclasses exist."""
+        project_path, _ = indexed_project_with_inheritance
+
+        result = runner.invoke(app, ["hierarchy", "NonexistentBase", "-p", str(project_path)])
+
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["count"] == 0
+        assert data["subclasses"] == []
+
+    def test_hierarchy_shows_base_classes(self, indexed_project_with_inheritance):
+        """Test that hierarchy results include base_classes field."""
+        project_path, _ = indexed_project_with_inheritance
+
+        result = runner.invoke(app, ["hierarchy", "BaseModel", "-p", str(project_path)])
+
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        for subclass in data["subclasses"]:
+            assert "base_classes" in subclass
+            assert "BaseModel" in subclass["base_classes"]
 
 
 class TestCLIIntegration:
@@ -217,18 +377,63 @@ class TestCLIIntegration:
         # Map
         result = runner.invoke(app, ["map", str(sample_project)])
         assert result.exit_code == 0
-        assert "src/" in result.stdout
+        data = json.loads(result.stdout)
+        assert data["command"] == "map"
 
         # Expand
         result = runner.invoke(app, ["expand", "src", "-p", str(sample_project)])
         assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["command"] == "expand"
 
         # Search
         result = runner.invoke(app, ["search", "Calculator", "-p", str(sample_project)])
         assert result.exit_code == 0
-        assert "Calculator" in result.stdout
+        data = json.loads(result.stdout)
+        assert data["command"] == "search"
+        assert "Calculator" in [r["node"]["name"] for r in data["results"]]
 
         # Read
         result = runner.invoke(app, ["read", "src/main.py", "-p", str(sample_project)])
         assert result.exit_code == 0
-        assert "file: src/main.py" in result.stdout
+        data = json.loads(result.stdout)
+        assert data["command"] == "read"
+
+    def test_workflow_with_hierarchy(self, project_with_inheritance):
+        """Test workflow including hierarchy command."""
+        # Index
+        result = runner.invoke(app, ["index", str(project_with_inheritance)])
+        assert result.exit_code == 0
+
+        # Hierarchy
+        result = runner.invoke(app, ["hierarchy", "BaseModel", "-p", str(project_with_inheritance)])
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["count"] >= 3  # User, Product, Order
+
+
+class TestCLIEdgeCases:
+    """Test edge cases and error handling."""
+
+    def test_read_invalid_line_range(self, indexed_project):
+        """Test read with invalid line range (start > end)."""
+        project_path, _ = indexed_project
+
+        result = runner.invoke(app, ["read", "src/main.py", "10", "5", "-p", str(project_path)])
+
+        assert result.exit_code == 1
+        assert "Invalid line range" in result.stdout
+
+    def test_help_command(self):
+        """Test that help command works."""
+        result = runner.invoke(app, ["--help"])
+
+        assert result.exit_code == 0
+        assert "contexto" in result.stdout.lower()
+
+    def test_command_help(self):
+        """Test that individual command help works."""
+        commands = ["index", "map", "expand", "inspect", "search", "read", "hierarchy"]
+        for cmd in commands:
+            result = runner.invoke(app, [cmd, "--help"])
+            assert result.exit_code == 0

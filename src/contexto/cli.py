@@ -10,12 +10,42 @@ from rich.panel import Panel
 from contexto.graph import CodeGraph, GraphNode
 from contexto.store import Store
 from contexto.search import SearchEngine
-from contexto.output import TextFormatter
+from contexto.output import JsonFormatter
+
+HELP_TEXT = """
+A CLI tool to explore Python codebases. Designed for LLMs and coding agents.
+All output is JSON for easy parsing.
+
+WORKFLOW FOR LLMs:
+  1. contexto index          # First, index the project (run once)
+  2. contexto map            # Get project overview
+  3. contexto expand <path>  # Drill into directories or files
+  4. contexto search <query> # Find code by keyword
+  5. contexto inspect <entity> # See entity details and call relationships
+  6. contexto hierarchy <class> # Find subclasses
+  7. contexto read <file> [start] [end] # Read source code
+
+EXAMPLES:
+  contexto index                    # Index current directory
+  contexto map                      # Show project structure
+  contexto expand src/api           # List files in directory
+  contexto expand src/api/users.py  # Show classes/functions in file
+  contexto search "authentication"  # Find auth-related code
+  contexto inspect src/api/users.py:UserController.get_user
+  contexto hierarchy BaseModel      # Find all BaseModel subclasses
+  contexto read src/api/users.py 10 50  # Read lines 10-50
+
+OUTPUT FORMAT:
+  All commands return JSON with a "command" field identifying the response type.
+  Entities include: id, name, type, file_path, line_start, line_end, signature,
+  docstring, calls (functions called), base_classes (for classes).
+"""
 
 app = typer.Typer(
     name="contexto",
-    help="A navigable graph of your Python codebase for LLMs",
+    help=HELP_TEXT,
     no_args_is_help=True,
+    add_completion=False,  # Remove shell completion options (not useful for LLMs)
 )
 console = Console()
 
@@ -44,10 +74,15 @@ def index(
     incremental: bool = typer.Option(
         False,
         "--incremental", "-i",
-        help="Only update changed files",
+        help="Only update changed files (faster for large projects)",
     ),
 ) -> None:
-    """Index a Python project and build the navigation graph."""
+    """Index a Python project. Run this first before other commands.
+
+    Creates .contexto/index.db with: file structure, classes, functions,
+    methods, signatures, docstrings, call relationships, and search index.
+    Use -i for incremental updates after the first full index.
+    """
     project_path = (path or Path.cwd()).resolve()
 
     if not project_path.is_dir():
@@ -158,6 +193,11 @@ def _incremental_index(project_path: Path, db_path: Path) -> None:
         files_removed = 0
         new_hashes: dict[str, str] = {}
 
+        # Track node IDs that need search index updates
+        added_node_ids: list[str] = []
+        updated_node_ids: list[str] = []
+        removed_node_ids: list[str] = []
+
         # Check for new or modified files
         for rel_path in current_files:
             file_path = project_path / rel_path
@@ -173,21 +213,50 @@ def _incremental_index(project_path: Path, db_path: Path) -> None:
                     # Ensure all parent directories exist in the graph
                     _ensure_parent_dirs(graph, project_path, rel_path)
 
+                # Track nodes before adding
+                old_node_ids = set(graph.nodes.keys())
                 graph.add_single_file(file_path, rel_path, parent_id)
+                # Find newly added node IDs (entities from this file)
+                new_node_ids = set(graph.nodes.keys()) - old_node_ids
+                added_node_ids.extend(nid for nid in new_node_ids if graph.nodes[nid].type in ('function', 'method', 'class'))
+
                 new_hashes[rel_path] = current_hash
                 files_added += 1
             elif stored_hash != current_hash:
-                # Modified file - parent already exists
+                # Modified file - collect old node IDs to remove from index
+                old_nodes_for_file = [
+                    nid for nid, node in graph.nodes.items()
+                    if node.file_path == rel_path and node.type in ('function', 'method', 'class')
+                ]
+                updated_node_ids.extend(old_nodes_for_file)
+
+                # Update the graph
                 parent_id = str(Path(rel_path).parent)
                 if parent_id == ".":
                     parent_id = "."
                 graph.add_single_file(file_path, rel_path, parent_id)
+
+                # Collect new node IDs after update
+                new_nodes_for_file = [
+                    nid for nid, node in graph.nodes.items()
+                    if node.file_path == rel_path and node.type in ('function', 'method', 'class')
+                ]
+                updated_node_ids.extend(new_nodes_for_file)
+
                 new_hashes[rel_path] = current_hash
                 files_updated += 1
 
         # Check for deleted files - collect all to delete in batch
         files_to_delete = [rel_path for rel_path in indexed_files if rel_path not in current_files]
         if files_to_delete:
+            # Collect node IDs to remove from search index before deleting
+            for rel_path in files_to_delete:
+                nodes_for_file = [
+                    nid for nid, node in graph.nodes.items()
+                    if node.file_path == rel_path and node.type in ('function', 'method', 'class')
+                ]
+                removed_node_ids.extend(nodes_for_file)
+
             store.delete_file_nodes_batch(files_to_delete)
             files_removed = len(files_to_delete)
 
@@ -198,10 +267,26 @@ def _incremental_index(project_path: Path, db_path: Path) -> None:
         if new_hashes:
             store.save_file_hashes_batch(new_hashes)
 
-        # Rebuild search index
-        console.print("Rebuilding search index...")
+        # Update search index incrementally
         search_engine = SearchEngine(store)
-        search_engine.build_index()
+
+        # Calculate net change in document count
+        docs_added = len(added_node_ids)
+        docs_removed = len(removed_node_ids)
+        net_doc_change = docs_added - docs_removed
+
+        # Remove deleted nodes from index
+        if removed_node_ids:
+            console.print(f"Removing {len(removed_node_ids)} entities from search index...")
+            search_engine.remove_nodes_from_index(removed_node_ids)
+
+        # Update added and modified nodes
+        nodes_to_update = list(set(added_node_ids + updated_node_ids))
+        if nodes_to_update:
+            console.print(f"Updating search index for {len(nodes_to_update)} entities...")
+            search_engine.update_index_for_nodes(nodes_to_update, net_doc_change)
+        elif not removed_node_ids:
+            console.print("No changes to search index.")
 
     # Print stats
     stats = graph.get_stats(".")
@@ -226,13 +311,17 @@ def show_map(
         help="Path to the project (default: current directory)",
     ),
 ) -> None:
-    """Show the project map."""
+    """Show high-level project structure with stats.
+
+    Returns: project name, root path, total stats (files, classes, functions),
+    and top-level directories with their stats. Use 'expand' to drill deeper.
+    """
     project_path = (path or Path.cwd()).resolve()
     db_path = _get_db_path(project_path)
     _check_index_exists(db_path)
 
     with Store(db_path) as store:
-        formatter = TextFormatter()
+        formatter = JsonFormatter()
 
         root = store.get_node(".")
         if not root:
@@ -255,7 +344,7 @@ def show_map(
             children=child_stats,
         )
 
-        console.print(output)
+        print(output)
 
 
 @app.command()
@@ -270,13 +359,18 @@ def expand(
         help="Path to the project (default: current directory)",
     ),
 ) -> None:
-    """Expand a node to see its children."""
+    """Drill into a directory or file to see its contents.
+
+    For directories: shows subdirectories and files with stats.
+    For files: shows classes (with base_classes) and functions with line ranges.
+    For classes: shows methods with signatures and docstrings.
+    """
     project_path = (path or Path.cwd()).resolve()
     db_path = _get_db_path(project_path)
     _check_index_exists(db_path)
 
     with Store(db_path) as store:
-        formatter = TextFormatter()
+        formatter = JsonFormatter()
 
         node = store.get_node(node_path)
         if not node:
@@ -290,14 +384,14 @@ def expand(
         stats_map = store.get_stats_batch(child_ids) if child_ids else {}
 
         output = formatter.format_expand(node, children, stats_map)
-        console.print(output)
+        print(output)
 
 
 @app.command()
 def inspect(
     entity_path: str = typer.Argument(
         ...,
-        help="Entity to inspect (e.g., 'src/api/users.py:UserController.get_user')",
+        help="Entity ID (e.g., 'src/api/users.py:UserController.get_user')",
     ),
     path: Optional[Path] = typer.Option(
         None,
@@ -305,13 +399,18 @@ def inspect(
         help="Path to the project (default: current directory)",
     ),
 ) -> None:
-    """Inspect an entity to see its details and relationships."""
+    """Get full details of a class, function, or method.
+
+    Returns: type, name, file path, line range, signature, docstring,
+    'calls' (what this entity calls), 'called_by' (what calls this entity).
+    Entity ID format: 'file.py:ClassName.method_name' or 'file.py:function'.
+    """
     project_path = (path or Path.cwd()).resolve()
     db_path = _get_db_path(project_path)
     _check_index_exists(db_path)
 
     with Store(db_path) as store:
-        formatter = TextFormatter()
+        formatter = JsonFormatter()
 
         node = store.get_node(entity_path)
         if not node:
@@ -325,19 +424,19 @@ def inspect(
         called_by = store.get_callers(node.name)
 
         output = formatter.format_inspect(node, calls_to, called_by)
-        console.print(output)
+        print(output)
 
 
 @app.command()
 def search(
     query: str = typer.Argument(
         ...,
-        help="Search query",
+        help="Search query (searches names, signatures, docstrings)",
     ),
     limit: int = typer.Option(
         10,
         "--limit", "-l",
-        help="Maximum number of results",
+        help="Maximum number of results (default: 10)",
     ),
     path: Optional[Path] = typer.Option(
         None,
@@ -345,34 +444,39 @@ def search(
         help="Path to the project (default: current directory)",
     ),
 ) -> None:
-    """Search for entities by keyword."""
+    """Find classes, functions, methods by keyword using TF-IDF search.
+
+    Searches entity names, signatures, and docstrings. Returns ranked results
+    with relevance scores (0-1). Use the entity 'id' from results with
+    'inspect' to get full details.
+    """
     project_path = (path or Path.cwd()).resolve()
     db_path = _get_db_path(project_path)
     _check_index_exists(db_path)
 
     with Store(db_path) as store:
         search_engine = SearchEngine(store)
-        formatter = TextFormatter()
+        formatter = JsonFormatter()
 
         results = search_engine.search(query, limit=limit)
         output = formatter.format_search_results(query, results)
 
-        console.print(output)
+        print(output)
 
 
 @app.command()
 def read(
     file_path: str = typer.Argument(
         ...,
-        help="File to read (e.g., 'src/api/users.py')",
+        help="Relative file path (e.g., 'src/api/users.py')",
     ),
     start: Optional[int] = typer.Argument(
         None,
-        help="Start line (optional)",
+        help="Start line number (1-indexed, optional)",
     ),
     end: Optional[int] = typer.Argument(
         None,
-        help="End line (optional)",
+        help="End line number (inclusive, optional)",
     ),
     path: Optional[Path] = typer.Option(
         None,
@@ -380,7 +484,12 @@ def read(
         help="Path to the project (default: current directory)",
     ),
 ) -> None:
-    """Read source code from a file."""
+    """Read source code with line numbers.
+
+    Returns file content as JSON array of {number, content} objects.
+    Use line ranges from 'expand' or 'inspect' to read specific functions.
+    Without start/end, reads entire file.
+    """
     project_path = (path or Path.cwd()).resolve()
     db_path = _get_db_path(project_path)
     _check_index_exists(db_path)
@@ -391,8 +500,23 @@ def read(
         console.print(f"[red]Error:[/red] File not found: {file_path}")
         raise typer.Exit(1)
 
-    # Read file content
-    content = full_path.read_text()
+    # Read file content with error handling
+    try:
+        content = full_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        # Try with latin-1 as fallback (handles most binary-ish files)
+        try:
+            content = full_path.read_text(encoding="latin-1")
+        except Exception as e:
+            console.print(f"[red]Error:[/red] Cannot read file {file_path}: {e}")
+            raise typer.Exit(1)
+    except PermissionError:
+        console.print(f"[red]Error:[/red] Permission denied: {file_path}")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Error:[/red] Cannot read file {file_path}: {e}")
+        raise typer.Exit(1)
+
     lines = content.split("\n")
 
     # Apply line range if specified
@@ -412,9 +536,40 @@ def read(
     selected_lines = lines[start_line - 1:end_line]
     selected_content = "\n".join(selected_lines)
 
-    formatter = TextFormatter()
+    formatter = JsonFormatter()
     output = formatter.format_read(file_path, selected_content, start_line)
-    console.print(output)
+    print(output)
+
+
+@app.command()
+def hierarchy(
+    base_class: str = typer.Argument(
+        ...,
+        help="Base class name (e.g., 'Exception', 'BaseModel', 'APIView')",
+    ),
+    path: Optional[Path] = typer.Option(
+        None,
+        "--project", "-p",
+        help="Path to the project (default: current directory)",
+    ),
+) -> None:
+    """Find all classes that inherit from a given base class.
+
+    Returns list of subclasses with their file paths, signatures, and
+    base_classes list. Useful for understanding class hierarchies and
+    finding implementations of abstract base classes.
+    """
+    project_path = (path or Path.cwd()).resolve()
+    db_path = _get_db_path(project_path)
+    _check_index_exists(db_path)
+
+    with Store(db_path) as store:
+        formatter = JsonFormatter()
+
+        subclasses = store.get_subclasses(base_class)
+        output = formatter.format_hierarchy(base_class, subclasses)
+
+        print(output)
 
 
 if __name__ == "__main__":

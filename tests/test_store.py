@@ -225,3 +225,190 @@ class TestStore:
         with Store(db_path) as store:
             node = store.get_node(".")
             assert node is not None
+
+    def test_get_subclasses(self, temp_dir):
+        """Test finding subclasses of a base class."""
+        db_path = temp_dir / "test.db"
+
+        with Store(db_path) as store:
+            # Create a graph with classes that have inheritance
+            graph = CodeGraph(temp_dir)
+            graph.nodes["."] = GraphNode(id=".", name="root", type="dir")
+            graph.nodes["models.py"] = GraphNode(
+                id="models.py",
+                name="models.py",
+                type="file",
+                parent_id=".",
+                file_path="models.py",
+            )
+            graph.nodes["models.py:User"] = GraphNode(
+                id="models.py:User",
+                name="User",
+                type="class",
+                parent_id="models.py",
+                file_path="models.py",
+                signature="class User(BaseModel)",
+                base_classes=["BaseModel"],
+            )
+            graph.nodes["models.py:Product"] = GraphNode(
+                id="models.py:Product",
+                name="Product",
+                type="class",
+                parent_id="models.py",
+                file_path="models.py",
+                signature="class Product(BaseModel)",
+                base_classes=["BaseModel"],
+            )
+            graph.nodes["models.py:Order"] = GraphNode(
+                id="models.py:Order",
+                name="Order",
+                type="class",
+                parent_id="models.py",
+                file_path="models.py",
+                signature="class Order(BaseModel, Serializable)",
+                base_classes=["BaseModel", "Serializable"],
+            )
+            graph.nodes["models.py:Other"] = GraphNode(
+                id="models.py:Other",
+                name="Other",
+                type="class",
+                parent_id="models.py",
+                file_path="models.py",
+                signature="class Other",
+                base_classes=[],
+            )
+            store.save_graph(graph)
+
+            # Find subclasses of BaseModel
+            subclasses = store.get_subclasses("BaseModel")
+            assert len(subclasses) == 3
+            names = {s.name for s in subclasses}
+            assert names == {"User", "Product", "Order"}
+
+            # Find subclasses of Serializable
+            subclasses = store.get_subclasses("Serializable")
+            assert len(subclasses) == 1
+            assert subclasses[0].name == "Order"
+
+            # No subclasses for unknown class
+            subclasses = store.get_subclasses("Unknown")
+            assert len(subclasses) == 0
+
+    def test_get_subclasses_special_characters(self, temp_dir):
+        """Test that get_subclasses handles special LIKE characters."""
+        db_path = temp_dir / "test.db"
+
+        with Store(db_path) as store:
+            graph = CodeGraph(temp_dir)
+            graph.nodes["."] = GraphNode(id=".", name="root", type="dir")
+            graph.nodes["test.py"] = GraphNode(
+                id="test.py", name="test.py", type="file", parent_id=".", file_path="test.py"
+            )
+            # Class with base class containing underscore
+            graph.nodes["test.py:MyClass"] = GraphNode(
+                id="test.py:MyClass",
+                name="MyClass",
+                type="class",
+                parent_id="test.py",
+                file_path="test.py",
+                base_classes=["Base_Model"],
+            )
+            store.save_graph(graph)
+
+            # Should find exact match only
+            subclasses = store.get_subclasses("Base_Model")
+            assert len(subclasses) == 1
+
+            # Underscore in LIKE is wildcard, but our search should still work
+            subclasses = store.get_subclasses("BaseXModel")
+            assert len(subclasses) == 0
+
+    def test_get_callers_at_different_positions(self, temp_dir):
+        """Test get_callers with function at start, middle, and end of calls list."""
+        db_path = temp_dir / "test.db"
+
+        with Store(db_path) as store:
+            graph = CodeGraph(temp_dir)
+            graph.nodes["."] = GraphNode(id=".", name="root", type="dir")
+            graph.nodes["test.py"] = GraphNode(
+                id="test.py", name="test.py", type="file", parent_id=".", file_path="test.py"
+            )
+            # Function with target at start of calls list
+            graph.nodes["test.py:func1"] = GraphNode(
+                id="test.py:func1",
+                name="func1",
+                type="function",
+                parent_id="test.py",
+                file_path="test.py",
+                calls=["target", "other"],
+            )
+            # Function with target in middle
+            graph.nodes["test.py:func2"] = GraphNode(
+                id="test.py:func2",
+                name="func2",
+                type="function",
+                parent_id="test.py",
+                file_path="test.py",
+                calls=["other", "target", "another"],
+            )
+            # Function with target at end
+            graph.nodes["test.py:func3"] = GraphNode(
+                id="test.py:func3",
+                name="func3",
+                type="function",
+                parent_id="test.py",
+                file_path="test.py",
+                calls=["other", "target"],
+            )
+            # Function with only target
+            graph.nodes["test.py:func4"] = GraphNode(
+                id="test.py:func4",
+                name="func4",
+                type="function",
+                parent_id="test.py",
+                file_path="test.py",
+                calls=["target"],
+            )
+            store.save_graph(graph)
+
+            callers = store.get_callers("target")
+            assert len(callers) == 4
+            caller_ids = set(callers)
+            assert "test.py:func1" in caller_ids
+            assert "test.py:func2" in caller_ids
+            assert "test.py:func3" in caller_ids
+            assert "test.py:func4" in caller_ids
+
+    def test_base_classes_preserved_on_load(self, temp_dir):
+        """Test that base_classes are properly saved and loaded."""
+        db_path = temp_dir / "test.db"
+
+        with Store(db_path) as store:
+            graph = CodeGraph(temp_dir)
+            graph.nodes["."] = GraphNode(id=".", name="root", type="dir")
+            graph.nodes["test.py"] = GraphNode(
+                id="test.py", name="test.py", type="file", parent_id=".", file_path="test.py"
+            )
+            graph.nodes["test.py:MyClass"] = GraphNode(
+                id="test.py:MyClass",
+                name="MyClass",
+                type="class",
+                parent_id="test.py",
+                file_path="test.py",
+                base_classes=["Base1", "Base2", "Base3"],
+            )
+            store.save_graph(graph)
+
+        with Store(db_path) as store:
+            loaded = store.load_graph(temp_dir)
+            node = loaded.nodes["test.py:MyClass"]
+            assert node.base_classes == ["Base1", "Base2", "Base3"]
+
+            # Also test get_node
+            node2 = store.get_node("test.py:MyClass")
+            assert node2.base_classes == ["Base1", "Base2", "Base3"]
+
+            # And get_children
+            children = store.get_children("test.py")
+            assert len(children) == 1
+            assert children[0].base_classes == ["Base1", "Base2", "Base3"]

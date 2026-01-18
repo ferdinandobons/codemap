@@ -1,38 +1,105 @@
-"""Tests for the text output formatter."""
+"""Tests for the JSON output formatter."""
 
+import json
 import pytest
 
 from contexto.graph import GraphNode
-from contexto.output import TextFormatter, _truncate
+from contexto.output import JsonFormatter, _node_to_dict
 
 
-class TestTextFormatter:
-    """Tests for TextFormatter."""
+class TestNodeToDict:
+    """Tests for the _node_to_dict helper function."""
 
-    def setup_method(self):
-        """Set up test fixtures."""
-        self.formatter = TextFormatter()
+    def test_basic_node(self):
+        """Test converting a basic node to dict."""
+        node = GraphNode(
+            id="src/main.py:foo",
+            name="foo",
+            type="function",
+        )
+        result = _node_to_dict(node)
+
+        assert result["id"] == "src/main.py:foo"
+        assert result["name"] == "foo"
+        assert result["type"] == "function"
+        assert result["parent_id"] is None
+        assert result["file_path"] is None
+        assert result["children_ids"] == []
+        assert result["calls"] == []
+        assert result["base_classes"] == []
+
+    def test_full_node(self):
+        """Test converting a node with all fields populated."""
+        node = GraphNode(
+            id="src/main.py:Calculator",
+            name="Calculator",
+            type="class",
+            parent_id="src/main.py",
+            file_path="src/main.py",
+            line_start=10,
+            line_end=50,
+            signature="class Calculator(BaseClass)",
+            docstring="A calculator class.",
+            children_ids=["src/main.py:Calculator.add"],
+            calls=["validate", "init"],
+            base_classes=["BaseClass"],
+        )
+        result = _node_to_dict(node)
+
+        assert result["id"] == "src/main.py:Calculator"
+        assert result["name"] == "Calculator"
+        assert result["type"] == "class"
+        assert result["parent_id"] == "src/main.py"
+        assert result["file_path"] == "src/main.py"
+        assert result["line_start"] == 10
+        assert result["line_end"] == 50
+        assert result["signature"] == "class Calculator(BaseClass)"
+        assert result["docstring"] == "A calculator class."
+        assert result["children_ids"] == ["src/main.py:Calculator.add"]
+        assert result["calls"] == ["validate", "init"]
+        assert result["base_classes"] == ["BaseClass"]
+
+
+class TestJsonFormatter:
+    """Tests for JsonFormatter."""
 
     def test_format_map(self):
-        """Test formatting project map."""
+        """Test formatting project map as JSON."""
         children = [
             ("src", {"files": 10, "classes": 5, "functions": 20, "methods": 50}),
             ("tests", {"files": 3, "classes": 0, "functions": 10, "methods": 0}),
         ]
 
-        output = self.formatter.format_map(
+        output = JsonFormatter.format_map(
             root_name="myproject",
             root_path="/path/to/project",
             stats={"files": 13, "classes": 5, "functions": 30, "methods": 50},
             children=children,
         )
 
-        assert "project: myproject" in output
-        assert "root: /path/to/project" in output
-        assert "src/" in output
-        assert "10 files" in output
-        assert "5 classes" in output
-        assert "tests/" in output
+        data = json.loads(output)
+        assert data["command"] == "map"
+        assert data["project"] == "myproject"
+        assert data["root"] == "/path/to/project"
+        assert data["stats"]["files"] == 13
+        assert data["stats"]["classes"] == 5
+        assert len(data["children"]) == 2
+        assert data["children"][0]["id"] == "src"
+        assert data["children"][0]["stats"]["files"] == 10
+        assert data["children"][1]["id"] == "tests"
+
+    def test_format_map_empty_children(self):
+        """Test formatting project map with no children."""
+        output = JsonFormatter.format_map(
+            root_name="empty",
+            root_path="/path/to/empty",
+            stats={"files": 0, "classes": 0, "functions": 0, "methods": 0},
+            children=[],
+        )
+
+        data = json.loads(output)
+        assert data["command"] == "map"
+        assert data["children"] == []
 
     def test_format_expand_directory(self):
         """Test expanding a directory node."""
@@ -44,7 +111,7 @@ class TestTextFormatter:
 
         children = [
             GraphNode(id="src/utils", name="utils", type="dir"),
-            GraphNode(id="src/main.py", name="main.py", type="file"),
+            GraphNode(id="src/main.py", name="main.py", type="file", line_end=100),
         ]
 
         stats_map = {
@@ -52,12 +119,16 @@ class TestTextFormatter:
             "src/main.py": {"files": 1, "classes": 1, "functions": 3, "methods": 5},
         }
 
-        output = self.formatter.format_expand(node, children, stats_map)
+        output = JsonFormatter.format_expand(node, children, stats_map)
 
-        assert "src/" in output
-        assert "utils/" in output
-        assert "5 files" in output
-        assert "main.py" in output
+        data = json.loads(output)
+        assert data["command"] == "expand"
+        assert data["node"]["id"] == "src"
+        assert data["node"]["type"] == "dir"
+        assert len(data["children"]) == 2
+        assert data["children"][0]["id"] == "src/utils"
+        assert data["children"][0]["stats"]["files"] == 5
+        assert data["children"][1]["id"] == "src/main.py"
 
     def test_format_expand_file(self):
         """Test expanding a file node."""
@@ -66,6 +137,7 @@ class TestTextFormatter:
             name="main.py",
             type="file",
             file_path="src/main.py",
+            line_start=1,
             line_end=100,
         )
 
@@ -76,8 +148,9 @@ class TestTextFormatter:
                 type="class",
                 line_start=10,
                 line_end=50,
+                signature="class Calculator(BaseClass)",
                 docstring="A calculator class.",
-                children_ids=["src/main.py:Calculator.add"],
+                base_classes=["BaseClass"],
             ),
             GraphNode(
                 id="src/main.py:main",
@@ -85,20 +158,24 @@ class TestTextFormatter:
                 type="function",
                 line_start=60,
                 line_end=70,
+                signature="def main()",
             ),
         ]
 
-        output = self.formatter.format_expand(node, children, {})
+        output = JsonFormatter.format_expand(node, children, {})
 
-        assert "src/main.py" in output
-        assert "100 lines" in output
-        assert "class Calculator" in output
-        assert "[10-50]" in output
-        assert "A calculator class." in output
-        assert "function main" in output
+        data = json.loads(output)
+        assert data["command"] == "expand"
+        assert data["node"]["line_end"] == 100
+        assert len(data["children"]) == 2
+        assert data["children"][0]["name"] == "Calculator"
+        assert data["children"][0]["type"] == "class"
+        assert data["children"][0]["base_classes"] == ["BaseClass"]
+        assert data["children"][1]["name"] == "main"
+        assert data["children"][1]["type"] == "function"
 
     def test_format_expand_class(self):
-        """Test expanding a class node."""
+        """Test expanding a class node to show methods."""
         node = GraphNode(
             id="src/main.py:Calculator",
             name="Calculator",
@@ -107,6 +184,7 @@ class TestTextFormatter:
             line_start=10,
             line_end=50,
             docstring="A calculator class.",
+            base_classes=["BaseClass"],
         )
 
         children = [
@@ -116,18 +194,19 @@ class TestTextFormatter:
                 type="method",
                 line_start=15,
                 line_end=20,
-                signature="def add(self, a, b)",
+                signature="def add(self, a: int, b: int) -> int",
                 docstring="Add two numbers.",
             ),
         ]
 
-        output = self.formatter.format_expand(node, children, {})
+        output = JsonFormatter.format_expand(node, children, {})
 
-        assert "class Calculator" in output
-        assert "[10-50]" in output
-        assert "file: src/main.py" in output
-        assert "add" in output
-        assert "def add(self, a, b)" in output
+        data = json.loads(output)
+        assert data["node"]["type"] == "class"
+        assert data["node"]["base_classes"] == ["BaseClass"]
+        assert len(data["children"]) == 1
+        assert data["children"][0]["type"] == "method"
+        assert data["children"][0]["signature"] == "def add(self, a: int, b: int) -> int"
 
     def test_format_inspect(self):
         """Test inspecting an entity."""
@@ -143,23 +222,34 @@ class TestTextFormatter:
             calls=["validate", "save"],
         )
 
-        output = self.formatter.format_inspect(
+        output = JsonFormatter.format_inspect(
             node,
             calls_to=["validate", "save"],
             called_by=["main", "handler"],
         )
 
-        assert "function: process" in output
-        assert "file: src/main.py" in output
-        assert "[10-30]" in output
-        assert "signature: def process(data: dict) -> bool" in output
-        assert "docstring: Process the data." in output
-        assert "calls:" in output
-        assert "- validate" in output
-        assert "- save" in output
-        assert "called by:" in output
-        assert "- main" in output
-        assert "- handler" in output
+        data = json.loads(output)
+        assert data["command"] == "inspect"
+        assert data["node"]["id"] == "src/main.py:process"
+        assert data["node"]["name"] == "process"
+        assert data["node"]["type"] == "function"
+        assert data["node"]["signature"] == "def process(data: dict) -> bool"
+        assert data["calls"] == ["validate", "save"]
+        assert data["called_by"] == ["main", "handler"]
+
+    def test_format_inspect_no_calls(self):
+        """Test inspecting an entity with no calls."""
+        node = GraphNode(
+            id="src/main.py:simple",
+            name="simple",
+            type="function",
+        )
+
+        output = JsonFormatter.format_inspect(node, calls_to=[], called_by=[])
+
+        data = json.loads(output)
+        assert data["calls"] == []
+        assert data["called_by"] == []
 
     def test_format_search_results(self):
         """Test formatting search results."""
@@ -178,70 +268,167 @@ class TestTextFormatter:
             ), 0.75),
         ]
 
-        output = self.formatter.format_search_results("process", results)
+        output = JsonFormatter.format_search_results("process", results)
 
-        assert 'search: "process"' in output
-        assert "(2 results)" in output
-        assert "1. src/main.py:process [function]" in output
-        assert "def process()" in output
-        assert "2. src/utils.py:helper [function]" in output
+        data = json.loads(output)
+        assert data["command"] == "search"
+        assert data["query"] == "process"
+        assert data["count"] == 2
+        assert len(data["results"]) == 2
+        assert data["results"][0]["node"]["id"] == "src/main.py:process"
+        assert data["results"][0]["score"] == 0.95
+        assert data["results"][1]["node"]["id"] == "src/utils.py:helper"
+        assert data["results"][1]["score"] == 0.75
 
     def test_format_search_no_results(self):
         """Test formatting search with no results."""
-        output = self.formatter.format_search_results("nonexistent", [])
+        output = JsonFormatter.format_search_results("nonexistent", [])
 
-        assert 'search: "nonexistent"' in output
-        assert "(0 results)" in output
+        data = json.loads(output)
+        assert data["command"] == "search"
+        assert data["query"] == "nonexistent"
+        assert data["count"] == 0
+        assert data["results"] == []
+
+    def test_format_search_score_rounding(self):
+        """Test that search scores are rounded to 4 decimal places."""
+        results = [
+            (GraphNode(id="a", name="a", type="function"), 0.123456789),
+        ]
+
+        output = JsonFormatter.format_search_results("test", results)
+
+        data = json.loads(output)
+        assert data["results"][0]["score"] == 0.1235
 
     def test_format_read(self):
         """Test formatting file read output."""
         content = "def hello():\n    print('Hello!')"
 
-        output = self.formatter.format_read(
+        output = JsonFormatter.format_read(
             file_path="src/main.py",
             content=content,
             start_line=10,
         )
 
-        assert "file: src/main.py" in output
-        assert "  10 | def hello():" in output
-        assert "  11 |     print('Hello!')" in output
+        data = json.loads(output)
+        assert data["command"] == "read"
+        assert data["file_path"] == "src/main.py"
+        assert data["start_line"] == 10
+        assert data["end_line"] == 11
+        assert len(data["lines"]) == 2
+        assert data["lines"][0]["number"] == 10
+        assert data["lines"][0]["content"] == "def hello():"
+        assert data["lines"][1]["number"] == 11
+        assert data["lines"][1]["content"] == "    print('Hello!')"
 
+    def test_format_read_single_line(self):
+        """Test formatting single line read."""
+        output = JsonFormatter.format_read(
+            file_path="test.py",
+            content="x = 1",
+            start_line=5,
+        )
 
-class TestTruncate:
-    """Tests for the _truncate helper."""
+        data = json.loads(output)
+        assert data["start_line"] == 5
+        assert data["end_line"] == 5
+        assert len(data["lines"]) == 1
 
-    def test_no_truncation_needed(self):
-        """Test text shorter than max length."""
-        text = "Short text"
-        result = _truncate(text, 100)
-        assert result == text
+    def test_format_read_empty_file(self):
+        """Test formatting read of empty file."""
+        output = JsonFormatter.format_read(
+            file_path="empty.py",
+            content="",
+            start_line=1,
+        )
 
-    def test_truncation_single_line(self):
-        """Test truncating single line text."""
-        text = "This is a very long line that needs truncation"
-        result = _truncate(text, 20)
-        assert len(result) == 20
-        assert result.endswith("...")
+        data = json.loads(output)
+        assert data["start_line"] == 1
+        assert data["end_line"] == 1
+        assert len(data["lines"]) == 1
+        assert data["lines"][0]["content"] == ""
 
-    def test_truncation_keeps_first_line(self):
-        """Test that truncation keeps first line if possible."""
-        text = "Short first line\nVery long second line that goes on and on"
-        result = _truncate(text, 30)
-        assert result == "Short first line"
+    def test_format_hierarchy(self):
+        """Test formatting class hierarchy."""
+        subclasses = [
+            GraphNode(
+                id="src/models/user.py:User",
+                name="User",
+                type="class",
+                signature="class User(BaseModel)",
+                base_classes=["BaseModel"],
+            ),
+            GraphNode(
+                id="src/models/product.py:Product",
+                name="Product",
+                type="class",
+                signature="class Product(BaseModel)",
+                base_classes=["BaseModel"],
+            ),
+        ]
 
-    def test_truncation_exact_length(self):
-        """Test text exactly at max length."""
-        text = "Exactly 10"
-        result = _truncate(text, 10)
-        assert result == text
+        output = JsonFormatter.format_hierarchy("BaseModel", subclasses)
 
-    def test_truncation_empty_string(self):
-        """Test truncating empty string."""
-        result = _truncate("", 10)
-        assert result == ""
+        data = json.loads(output)
+        assert data["command"] == "hierarchy"
+        assert data["base_class"] == "BaseModel"
+        assert data["count"] == 2
+        assert len(data["subclasses"]) == 2
+        assert data["subclasses"][0]["name"] == "User"
+        assert data["subclasses"][0]["base_classes"] == ["BaseModel"]
+        assert data["subclasses"][1]["name"] == "Product"
 
-    def test_truncation_none(self):
-        """Test truncating None returns empty string."""
-        result = _truncate(None, 10)
-        assert result == ""
+    def test_format_hierarchy_no_subclasses(self):
+        """Test formatting hierarchy with no subclasses found."""
+        output = JsonFormatter.format_hierarchy("UnknownClass", [])
+
+        data = json.loads(output)
+        assert data["command"] == "hierarchy"
+        assert data["base_class"] == "UnknownClass"
+        assert data["count"] == 0
+        assert data["subclasses"] == []
+
+    def test_json_output_is_valid(self):
+        """Test that all formatter methods produce valid JSON."""
+        node = GraphNode(id="test", name="test", type="function")
+
+        # All these should produce parseable JSON
+        outputs = [
+            JsonFormatter.format_map("p", "/p", {}, []),
+            JsonFormatter.format_expand(node, [], {}),
+            JsonFormatter.format_inspect(node, [], []),
+            JsonFormatter.format_search_results("q", []),
+            JsonFormatter.format_read("f", "c", 1),
+            JsonFormatter.format_hierarchy("B", []),
+        ]
+
+        for output in outputs:
+            # Should not raise
+            json.loads(output)
+
+    def test_special_characters_in_content(self):
+        """Test handling of special characters in docstrings and content."""
+        node = GraphNode(
+            id="test",
+            name="test",
+            type="function",
+            docstring='Contains "quotes" and \\ backslashes',
+        )
+
+        output = JsonFormatter.format_inspect(node, [], [])
+        data = json.loads(output)
+        assert data["node"]["docstring"] == 'Contains "quotes" and \\ backslashes'
+
+    def test_unicode_content(self):
+        """Test handling of unicode characters."""
+        node = GraphNode(
+            id="test",
+            name="test",
+            type="function",
+            docstring="Unicode: \u00e9\u00e8\u00e0\u00f9 \u4e2d\u6587 \U0001f600",
+        )
+
+        output = JsonFormatter.format_inspect(node, [], [])
+        data = json.loads(output)
+        assert "\u00e9" in data["node"]["docstring"]

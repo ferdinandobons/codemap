@@ -25,6 +25,7 @@ class GraphNode:
     docstring: Optional[str] = None
     children_ids: list[str] = field(default_factory=list)
     calls: list[str] = field(default_factory=list)
+    base_classes: list[str] = field(default_factory=list)
 
 
 class CodeGraph:
@@ -154,6 +155,7 @@ class CodeGraph:
                 signature=entity.signature,
                 docstring=entity.docstring,
                 calls=entity.calls,
+                base_classes=entity.base_classes,
             )
             self.nodes[entity_id] = node
 
@@ -172,9 +174,13 @@ class CodeGraph:
             return []
         return [self.nodes[cid] for cid in node.children_ids if cid in self.nodes]
 
-    def get_root(self) -> GraphNode:
-        """Get the root node."""
-        return self.nodes["."]
+    def get_root(self) -> Optional[GraphNode]:
+        """Get the root node.
+
+        Returns:
+            The root GraphNode, or None if the graph hasn't been built yet.
+        """
+        return self.nodes.get(".")
 
     def get_stats(self, node_id: str = ".") -> dict:
         """Get statistics for a node and its descendants."""

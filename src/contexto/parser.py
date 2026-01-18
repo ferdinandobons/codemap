@@ -23,6 +23,7 @@ class CodeEntity:
     docstring: Optional[str] = None
     parent_id: Optional[str] = None
     calls: list[str] = field(default_factory=list)
+    base_classes: list[str] = field(default_factory=list)
 
 
 class PythonParser:
@@ -94,6 +95,9 @@ class PythonParser:
 
         entities = []
 
+        # Extract base classes
+        base_classes = [ast.unparse(base) for base in node.bases]
+
         # Add the class itself
         entities.append(CodeEntity(
             id=class_id,
@@ -105,6 +109,7 @@ class PythonParser:
             signature=self._get_class_signature(node),
             docstring=ast.get_docstring(node),
             parent_id=parent_id,
+            base_classes=base_classes,
         ))
 
         # Add methods and nested classes

@@ -78,13 +78,13 @@ async def async_fetch(url: str) -> str:
 @pytest.fixture
 def indexed_project(sample_project):
     """Create and index a sample project."""
-    from contexto.graph import CodeGraph
-    from contexto.store import Store
-    from contexto.search import SearchEngine
+    from codemap.graph import CodeGraph
+    from codemap.store import Store
+    from codemap.search import SearchEngine
 
-    contexto_dir = sample_project / ".contexto"
-    contexto_dir.mkdir()
-    db_path = contexto_dir / "index.db"
+    codemap_dir = sample_project / ".codemap"
+    codemap_dir.mkdir()
+    db_path = codemap_dir / "index.db"
 
     # Build and save graph
     graph = CodeGraph(sample_project)
@@ -155,13 +155,13 @@ class Order(BaseModel):
 @pytest.fixture
 def indexed_project_with_inheritance(project_with_inheritance):
     """Index the project with inheritance."""
-    from contexto.graph import CodeGraph
-    from contexto.store import Store
-    from contexto.search import SearchEngine
+    from codemap.graph import CodeGraph
+    from codemap.store import Store
+    from codemap.search import SearchEngine
 
-    contexto_dir = project_with_inheritance / ".contexto"
-    contexto_dir.mkdir()
-    db_path = contexto_dir / "index.db"
+    codemap_dir = project_with_inheritance / ".codemap"
+    codemap_dir.mkdir()
+    db_path = codemap_dir / "index.db"
 
     graph = CodeGraph(project_with_inheritance)
     graph.build()
@@ -341,13 +341,13 @@ enum Status {
 @pytest.fixture
 def indexed_multilang_project(multilang_project):
     """Index the multi-language project."""
-    from contexto.graph import CodeGraph
-    from contexto.store import Store
-    from contexto.search import SearchEngine
+    from codemap.graph import CodeGraph
+    from codemap.store import Store
+    from codemap.search import SearchEngine
 
-    contexto_dir = multilang_project / ".contexto"
-    contexto_dir.mkdir()
-    db_path = contexto_dir / "index.db"
+    codemap_dir = multilang_project / ".codemap"
+    codemap_dir.mkdir()
+    db_path = codemap_dir / "index.db"
 
     graph = CodeGraph(multilang_project)
     graph.build()

@@ -7,7 +7,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import Optional
 
-from contexto.graph import CodeGraph, GraphNode
+from codemap.graph import CodeGraph, GraphNode
 
 
 class Store:

@@ -1,4 +1,4 @@
-"""Multi-language parser support for Contexto.
+"""Multi-language parser support for Codemap.
 
 Supported languages:
 - Python (.py, .pyi)
@@ -9,13 +9,13 @@ Supported languages:
 - Java (.java)
 """
 
-from contexto.parsers.base import (
+from codemap.parsers.base import (
     BaseParser,
     CodeEntity,
     LanguageConfig,
     DEFAULT_EXCLUDE_PATTERNS,
 )
-from contexto.parsers.registry import ParserRegistry, get_registry
+from codemap.parsers.registry import ParserRegistry, get_registry
 
 __all__ = [
     "BaseParser",

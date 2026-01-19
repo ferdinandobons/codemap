@@ -1,6 +1,6 @@
 """Tests for the code graph."""
 
-from contexto.graph import CodeGraph, GraphNode
+from codemap.graph import CodeGraph, GraphNode
 
 
 class TestGraphNode:

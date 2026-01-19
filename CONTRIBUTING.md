@@ -1,6 +1,6 @@
-# Contributing to Contexto
+# Contributing to Codemap
 
-Thank you for your interest in contributing to Contexto! This document provides guidelines and instructions for contributing.
+Thank you for your interest in contributing to Codemap! This document provides guidelines and instructions for contributing.
 
 ## Code of Conduct
 
@@ -15,7 +15,7 @@ Before creating a bug report, please check the existing issues to avoid duplicat
 - **Clear title** describing the issue
 - **Steps to reproduce** the behavior
 - **Expected behavior** vs. actual behavior
-- **Environment details** (OS, Python version, Contexto version)
+- **Environment details** (OS, Python version, Codemap version)
 - **Error messages** or logs if applicable
 
 ### Suggesting Features
@@ -43,8 +43,8 @@ Feature suggestions are welcome! Please:
 
 ```bash
 # Clone your fork
-git clone https://github.com/YOUR_USERNAME/contexto.git
-cd contexto
+git clone https://github.com/YOUR_USERNAME/codemap.git
+cd codemap
 
 # Create a virtual environment
 python -m venv venv
@@ -115,8 +115,8 @@ Examples:
 ## Project Structure
 
 ```
-contexto/
-├── src/contexto/       # Main package
+codemap/
+├── src/codemap/       # Main package
 │   ├── __init__.py
 │   ├── cli.py          # CLI commands
 │   ├── parser.py       # AST parsing
@@ -134,7 +134,7 @@ contexto/
 
 If you have questions, feel free to:
 
-- Open a [Discussion](https://github.com/YOUR_USERNAME/contexto/discussions)
+- Open a [Discussion](https://github.com/YOUR_USERNAME/codemap/discussions)
 - Ask in an issue with the `question` label
 
 Thank you for contributing!

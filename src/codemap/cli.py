@@ -1,4 +1,4 @@
-"""CLI commands for Contexto."""
+"""CLI commands for Codemap."""
 
 from pathlib import Path
 from typing import Optional
@@ -7,11 +7,11 @@ import typer
 from rich.console import Console
 from rich.panel import Panel
 
-from contexto.graph import CodeGraph, GraphNode
-from contexto.store import Store
-from contexto.search import SearchEngine
-from contexto.output import JsonFormatter
-from contexto.parsers import get_registry, DEFAULT_EXCLUDE_PATTERNS
+from codemap.graph import CodeGraph, GraphNode
+from codemap.store import Store
+from codemap.search import SearchEngine
+from codemap.output import JsonFormatter
+from codemap.parsers import get_registry, DEFAULT_EXCLUDE_PATTERNS
 
 HELP_TEXT = """
 A CLI tool to explore codebases. Designed for LLMs and coding agents.
@@ -19,23 +19,23 @@ Supports: Python, JavaScript/TypeScript, Go, Rust, Java.
 All output is JSON for easy parsing.
 
 WORKFLOW FOR LLMs:
-  1. contexto index          # First, index the project (run once)
-  2. contexto map            # Get project overview
-  3. contexto expand <path>  # Drill into directories or files
-  4. contexto search <query> # Find code by keyword
-  5. contexto inspect <entity> # See entity details and call relationships
-  6. contexto hierarchy <class> # Find subclasses
-  7. contexto read <file> [start] [end] # Read source code
+  1. codemap index          # First, index the project (run once)
+  2. codemap map            # Get project overview
+  3. codemap expand <path>  # Drill into directories or files
+  4. codemap search <query> # Find code by keyword
+  5. codemap inspect <entity> # See entity details and call relationships
+  6. codemap hierarchy <class> # Find subclasses
+  7. codemap read <file> [start] [end] # Read source code
 
 EXAMPLES:
-  contexto index                    # Index current directory
-  contexto map                      # Show project structure
-  contexto expand src/api           # List files in directory
-  contexto expand src/api/users.py  # Show classes/functions in file
-  contexto search "authentication"  # Find auth-related code
-  contexto inspect src/api/users.py:UserController.get_user
-  contexto hierarchy BaseModel      # Find all BaseModel subclasses
-  contexto read src/api/users.py 10 50  # Read lines 10-50
+  codemap index                    # Index current directory
+  codemap map                      # Show project structure
+  codemap expand src/api           # List files in directory
+  codemap expand src/api/users.py  # Show classes/functions in file
+  codemap search "authentication"  # Find auth-related code
+  codemap inspect src/api/users.py:UserController.get_user
+  codemap hierarchy BaseModel      # Find all BaseModel subclasses
+  codemap read src/api/users.py 10 50  # Read lines 10-50
 
 OUTPUT FORMAT:
   All commands return JSON with a "command" field identifying the response type.
@@ -44,7 +44,7 @@ OUTPUT FORMAT:
 """
 
 app = typer.Typer(
-    name="contexto",
+    name="codemap",
     help=HELP_TEXT,
     no_args_is_help=True,
     add_completion=False,  # Remove shell completion options (not useful for LLMs)
@@ -54,7 +54,7 @@ console = Console()
 
 def _get_db_path(project_path: Path) -> Path:
     """Get the database path for a project."""
-    return project_path / ".contexto" / "index.db"
+    return project_path / ".codemap" / "index.db"
 
 
 def _check_index_exists(db_path: Path) -> None:
@@ -62,7 +62,7 @@ def _check_index_exists(db_path: Path) -> None:
     if not db_path.exists():
         console.print(
             f"[red]Error:[/red] No index found at {db_path}\n"
-            "Run [bold]contexto index[/bold] first."
+            "Run [bold]codemap index[/bold] first."
         )
         raise typer.Exit(1)
 
@@ -83,7 +83,7 @@ def index(
     """Index a project. Run this first before other commands.
 
     Supports: Python, JavaScript/TypeScript, Go, Rust, Java.
-    Creates .contexto/index.db with: file structure, classes, functions,
+    Creates .codemap/index.db with: file structure, classes, functions,
     methods, signatures, docstrings, call relationships, and search index.
     Use -i for incremental updates after the first full index.
     """
@@ -93,15 +93,15 @@ def index(
         console.print(f"[red]Error:[/red] {project_path} is not a directory")
         raise typer.Exit(1)
 
-    contexto_dir = project_path / ".contexto"
-    db_path = contexto_dir / "index.db"
+    codemap_dir = project_path / ".codemap"
+    db_path = codemap_dir / "index.db"
 
     if incremental and db_path.exists():
         console.print(f"Incremental indexing [bold]{project_path}[/bold]...")
         _incremental_index(project_path, db_path)
     else:
-        # Ensure .contexto directory exists
-        contexto_dir.mkdir(exist_ok=True)
+        # Ensure .codemap directory exists
+        codemap_dir.mkdir(exist_ok=True)
         console.print(f"Indexing [bold]{project_path}[/bold]...")
         _full_index(project_path, db_path)
 
@@ -166,7 +166,7 @@ def _full_index(project_path: Path, db_path: Path) -> None:
             f"  Functions: {stats['functions']}\n"
             f"  Methods: {stats['methods']}\n\n"
             f"Database: [dim]{db_path}[/dim]",
-            title="Contexto",
+            title="Codemap",
         )
     )
 
@@ -324,7 +324,7 @@ def _incremental_index(project_path: Path, db_path: Path) -> None:
             f"  Functions: {stats['functions']}\n"
             f"  Methods: {stats['methods']}\n\n"
             f"Database: [dim]{db_path}[/dim]",
-            title="Contexto",
+            title="Codemap",
         )
     )
 

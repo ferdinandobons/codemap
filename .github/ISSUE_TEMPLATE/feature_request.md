@@ -18,7 +18,7 @@ Describe a specific use case where this feature would be helpful.
 
 ```
 Example command or workflow:
-contexto <new-command> --flag
+codemap <new-command> --flag
 ```
 
 ## Alternatives Considered

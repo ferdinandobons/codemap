@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from contexto.parsers.javascript_parser import JavaScriptParser
+from codemap.parsers.javascript_parser import JavaScriptParser
 
 
 class TestJavaScriptParser:

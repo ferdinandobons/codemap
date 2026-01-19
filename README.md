@@ -1,9 +1,9 @@
-# Contexto
+# Codemap
 
-[![PyPI version](https://img.shields.io/pypi/v/contexto.svg)](https://pypi.org/project/contexto/)
+[![PyPI version](https://img.shields.io/pypi/v/codemap.svg)](https://pypi.org/project/codemap/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/ferdinandobons/contexto/pulls)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/ferdinandobons/codemap/pulls)
 
 A CLI tool to explore codebases efficiently. Designed for LLMs and coding agents as a smarter alternative to `ls`, `grep`, and `find`.
 
@@ -25,7 +25,7 @@ All parsers use [tree-sitter](https://tree-sitter.github.io/) for fast, accurate
 ## 📦 Installation
 
 ```bash
-pip install contexto
+pip install codemap
 ```
 
 ## 🚀 Quick Start
@@ -33,30 +33,30 @@ pip install contexto
 ```bash
 # 1. Index your project
 cd /path/to/your/project
-contexto index
+codemap index
 
 # 2. Explore the codebase
-contexto map                          # See project structure
-contexto expand src/api               # Expand a directory
-contexto search "authentication"      # Search for code
-contexto inspect src/api:UserController   # Inspect entity details
-contexto hierarchy BaseModel          # Find all subclasses
-contexto read src/api/users.py 10 50  # Read specific lines
+codemap map                          # See project structure
+codemap expand src/api               # Expand a directory
+codemap search "authentication"      # Search for code
+codemap inspect src/api:UserController   # Inspect entity details
+codemap hierarchy BaseModel          # Find all subclasses
+codemap read src/api/users.py 10 50  # Read specific lines
 ```
 
 ## 📖 Commands
 
-### `contexto index [path]`
+### `codemap index [path]`
 
 Index a project and build the navigation graph. Automatically detects and parses all supported languages.
 
 ```bash
-contexto index                    # Index current directory
-contexto index /path/to/project   # Index specific project
-contexto index -i                 # Incremental update (faster)
+codemap index                    # Index current directory
+codemap index /path/to/project   # Index specific project
+codemap index -i                 # Incremental update (faster)
 ```
 
-Creates a `.contexto/index.db` database with:
+Creates a `.codemap/index.db` database with:
 - File and directory structure
 - Classes, methods, functions (and language-specific entities)
 - Signatures and docstrings
@@ -65,12 +65,12 @@ Creates a `.contexto/index.db` database with:
 - TF-IDF search index
 - Language metadata for each entity
 
-### `contexto map [path]`
+### `codemap map [path]`
 
 Show a compact map of the project structure.
 
 ```bash
-$ contexto map
+$ codemap map
 ```
 
 ```json
@@ -86,12 +86,12 @@ $ contexto map
 }
 ```
 
-### `contexto expand <path>`
+### `codemap expand <path>`
 
 Expand a node to see its children.
 
 ```bash
-$ contexto expand src/api/users.py
+$ codemap expand src/api/users.py
 ```
 
 ```json
@@ -118,12 +118,12 @@ $ contexto expand src/api/users.py
 }
 ```
 
-### `contexto inspect <entity>`
+### `codemap inspect <entity>`
 
 Show detailed info about an entity: signature, docstring, relationships.
 
 ```bash
-$ contexto inspect src/api/users.py:UserController.get_user
+$ codemap inspect src/api/users.py:UserController.get_user
 ```
 
 ```json
@@ -144,12 +144,12 @@ $ contexto inspect src/api/users.py:UserController.get_user
 }
 ```
 
-### `contexto search <query>`
+### `codemap search <query>`
 
 Search for entities by keyword (names, docstrings, signatures).
 
 ```bash
-$ contexto search "authentication"
+$ codemap search "authentication"
 ```
 
 ```json
@@ -174,12 +174,12 @@ $ contexto search "authentication"
 Options:
 - `--limit, -l`: Maximum number of results (default: 10)
 
-### `contexto hierarchy <base_class>`
+### `codemap hierarchy <base_class>`
 
 Find all classes that inherit from a given base class.
 
 ```bash
-$ contexto hierarchy BaseModel
+$ codemap hierarchy BaseModel
 ```
 
 ```json
@@ -206,12 +206,12 @@ $ contexto hierarchy BaseModel
 }
 ```
 
-### `contexto read <file> [start] [end]`
+### `codemap read <file> [start] [end]`
 
 Read source code from a file. Outputs raw code (not JSON).
 
 ```bash
-$ contexto read src/api/users.py 15 20
+$ codemap read src/api/users.py 15 20
 ```
 
 ```python
@@ -227,7 +227,7 @@ Use line ranges from `expand` or `inspect` to read specific functions.
 
 ## 🤖 Use with LLMs
 
-Contexto is designed for coding agents like Claude Code. Instead of using `ls`, `grep`, and `find`:
+Codemap is designed for coding agents like Claude Code. Instead of using `ls`, `grep`, and `find`:
 
 ```bash
 # Before: multiple commands, unstructured output
@@ -236,9 +236,9 @@ grep -r "authenticate" src/
 cat src/api/auth.py
 
 # After: JSON output, easy to parse
-contexto map
-contexto search "authenticate"
-contexto expand src/api/auth.py
+codemap map
+codemap search "authenticate"
+codemap expand src/api/auth.py
 ```
 
 ### ✨ Benefits for LLMs
@@ -248,7 +248,7 @@ contexto expand src/api/auth.py
 | `ls` | File names only | None | None |
 | `grep` | Matching lines | None | None |
 | `find` | File paths | None | None |
-| **contexto** | Structured JSON | Classes, functions, methods | Calls, called-by, inheritance |
+| **codemap** | Structured JSON | Classes, functions, methods | Calls, called-by, inheritance |
 
 ### Features
 
@@ -259,7 +259,7 @@ contexto expand src/api/auth.py
 
 ## ⚙️ How It Works
 
-Contexto uses tree-sitter to parse source files and builds a navigable graph:
+Codemap uses tree-sitter to parse source files and builds a navigable graph:
 
 ```
 Project Root
